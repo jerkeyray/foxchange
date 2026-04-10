@@ -7,7 +7,7 @@ import { SandboxEditor } from "@/components/SandboxEditor";
 import { CurrencyGraph } from "@/components/CurrencyGraph";
 import { CycleCard } from "@/components/CycleCard";
 import { IterationTable } from "@/components/IterationTable";
-import { ConvergencePlot } from "@/components/ConvergencePlot";
+import { StepTable } from "@/components/StepTable";
 import { GraphControls } from "@/components/GraphControls";
 import { StepNarrator } from "@/components/StepNarrator";
 import { useAnimationPlayer } from "@/hooks/useAnimationPlayer";
@@ -297,10 +297,11 @@ export default function SandboxPage() {
             currentIndex={player.currentIndex}
             source={source}
           />
-          <ConvergencePlot
+          <StepTable
             graph={graph}
             steps={steps}
             currentIndex={player.currentIndex}
+            source={source}
           />
         </div>
       )}
