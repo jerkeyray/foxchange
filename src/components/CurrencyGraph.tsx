@@ -397,7 +397,8 @@ export function CurrencyGraph({
     // Reset all edges to base style first
     applyEdgeBaseStyle(link, highlightedEdgeSet);
 
-    // Overlay active edge style
+    // Overlay active edge style — keep stroke-width constant so the arrowhead
+    // (which scales with stroke-width) doesn't visually jump when an edge activates.
     if (activeKey) {
       link.filter(function () {
         return d3.select(this).attr("data-key") === activeKey;
@@ -407,14 +408,15 @@ export function CurrencyGraph({
         sel
           .attr("stroke", relaxed ? "#22c55e" : "#3b82f6")
           .attr("stroke-opacity", 1)
-          .attr("stroke-width", 3.5)
+          .attr("stroke-width", 1.5)
           .attr("marker-end", relaxed ? "url(#arrow-relaxed)" : "url(#arrow-active)")
           .attr("filter", "url(#glow)")
           .attr("class", "");
       });
     }
 
-    // Update distance labels
+    // Update distance labels — show as accumulated rate (exp(-dist)) so users
+    // see "0.92×" instead of opaque "-0.0476" weight values.
     if (currentStep) {
       node.select<SVGTextElement>("text.dist-label")
         .attr("fill-opacity", 1)
@@ -427,7 +429,11 @@ export function CurrencyGraph({
           const dn = d as D3Node;
           const v = currentStep.distances[dn.id];
           if (v == null || !isFinite(v)) return "\u221e";
-          return v.toFixed(2);
+          if (v === 0) return "1.0000\u00d7";
+          const rate = Math.exp(-v);
+          if (rate >= 100) return `${rate.toFixed(2)}\u00d7`;
+          if (rate >= 0.01) return `${rate.toFixed(4)}\u00d7`;
+          return `${rate.toExponential(2)}\u00d7`;
         });
       node.select("rect.dist-bg")
         .attr("fill-opacity", 0.85)
@@ -482,10 +488,7 @@ function applyEdgeBaseStyle(
       if (highlightedEdgeSet.has(key)) return "#f59e0b";
       return strokeFromRate(d.rawRate, 1);
     })
-    .attr("stroke-width", (d) => {
-      const key = `${d.from}>${d.to}`;
-      return highlightedEdgeSet.has(key) ? 3 : 1.5;
-    })
+    .attr("stroke-width", 1.5)
     .attr("stroke-opacity", (d) => {
       if (highlightedEdgeSet.size === 0) return 0.55;
       const key = `${d.from}>${d.to}`;

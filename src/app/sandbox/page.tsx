@@ -9,6 +9,7 @@ import { CycleCard } from "@/components/CycleCard";
 import { IterationTable } from "@/components/IterationTable";
 import { ConvergencePlot } from "@/components/ConvergencePlot";
 import { GraphControls } from "@/components/GraphControls";
+import { StepNarrator } from "@/components/StepNarrator";
 import { useAnimationPlayer } from "@/hooks/useAnimationPlayer";
 import { PRESETS, type PresetKey } from "@/lib/presets";
 import { Button } from "@/components/ui/button";
@@ -259,7 +260,15 @@ export default function SandboxPage() {
           </div>
 
           {hasRun && steps.length > 0 && (
-            <div className="animate-fade-in min-w-0">
+            <div className="animate-fade-in min-w-0 space-y-3">
+              <StepNarrator
+                step={steps[player.currentIndex] ?? null}
+                currentIndex={player.currentIndex}
+                totalSteps={player.totalSteps}
+                source={source}
+                cycles={cycles}
+                numNodes={graph.nodes.length}
+              />
               <GraphControls
                 currentIndex={player.currentIndex}
                 totalSteps={player.totalSteps}
@@ -286,6 +295,7 @@ export default function SandboxPage() {
             graph={graph}
             steps={steps}
             currentIndex={player.currentIndex}
+            source={source}
           />
           <ConvergencePlot
             graph={graph}

@@ -10,6 +10,7 @@ import { CycleCard } from "./CycleCard";
 import { IterationTable } from "./IterationTable";
 import { ConvergencePlot } from "./ConvergencePlot";
 import { GraphControls } from "./GraphControls";
+import { StepNarrator } from "./StepNarrator";
 import { Button } from "@/components/ui/button";
 
 interface CycleData {
@@ -124,6 +125,14 @@ export function CycleDetailView({ cycleId }: Props) {
               currentStep={data.steps[player.currentIndex] ?? null}
             />
           </div>
+          <StepNarrator
+            step={data.steps[player.currentIndex] ?? null}
+            currentIndex={player.currentIndex}
+            totalSteps={player.totalSteps}
+            source={data.source}
+            cycles={[data.cycle]}
+            numNodes={data.graph.nodes.length}
+          />
           <GraphControls
             currentIndex={player.currentIndex}
             totalSteps={player.totalSteps}
@@ -154,6 +163,7 @@ export function CycleDetailView({ cycleId }: Props) {
             graph={data.graph}
             steps={data.steps}
             currentIndex={player.currentIndex}
+            source={data.source}
           />
           <ConvergencePlot
             graph={data.graph}
