@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import * as d3 from "d3";
-import type { CycleResult, Graph } from "@/types/graph";
+import type { BFStep, CycleResult, Graph } from "@/types/graph";
 import { CURRENCY_MAP } from "@/lib/currencies";
 
 interface Props {
@@ -12,6 +12,7 @@ interface Props {
   onNodeClick?: (node: string) => void;
   width?: number;
   height?: number;
+  currentStep?: BFStep | null;
 }
 
 interface D3Node extends d3.SimulationNodeDatum {
@@ -32,8 +33,13 @@ export function CurrencyGraph({
   onNodeClick,
   width = 600,
   height = 500,
+  currentStep = null,
 }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
+  const linkRef = useRef<d3.Selection<SVGPathElement, D3Link, SVGGElement, unknown> | null>(null);
+  const nodeRef = useRef<d3.Selection<SVGGElement, D3Node, SVGGElement, unknown> | null>(null);
+  const highlightedEdgeSetRef = useRef<Set<string>>(new Set());
+  const cyclePathSetRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!svgRef.current || graph.nodes.length === 0) return;
@@ -48,12 +54,16 @@ export function CurrencyGraph({
       : null;
 
     const highlightedEdgeSet = new Set<string>();
+    const cyclePathSet = new Set<string>();
     if (highlightedCycle) {
       const path = highlightedCycle.path;
       for (let i = 0; i < path.length - 1; i++) {
         highlightedEdgeSet.add(`${path[i]}>${path[i + 1]}`);
       }
+      for (const node of path) cyclePathSet.add(node);
     }
+    highlightedEdgeSetRef.current = highlightedEdgeSet;
+    cyclePathSetRef.current = cyclePathSet;
 
     const nodes: D3Node[] = graph.nodes.map((id) => ({ id }));
     const links: D3Link[] = graph.edges.map((e) => ({
@@ -87,7 +97,7 @@ export function CurrencyGraph({
     nodeGlowMerge.append("feMergeNode").attr("in", "blur");
     nodeGlowMerge.append("feMergeNode").attr("in", "SourceGraphic");
 
-    // Arrow markers
+    // Arrow markers — simple V shape that sits naturally on the line end
     const makeMarker = (id: string, color: string) => {
       const m = defs
         .append("marker")
@@ -101,10 +111,14 @@ export function CurrencyGraph({
       m.append("path")
         .attr("d", "M0,-4L8,0L0,4")
         .attr("fill", color)
-        .attr("opacity", 0.8);
+        .attr("opacity", 0.95);
     };
-    makeMarker("arrow-default", "#475569");
+    makeMarker("arrow-default", "oklch(0.55 0.03 260)");
+    makeMarker("arrow-gain", "#10b981");
+    makeMarker("arrow-loss", "#ef4444");
     makeMarker("arrow-highlight", "#f59e0b");
+    makeMarker("arrow-active", "#3b82f6");
+    makeMarker("arrow-relaxed", "#22c55e");
 
     // Scale forces based on node count for better spacing
     const n = nodes.length;
@@ -125,7 +139,6 @@ export function CurrencyGraph({
       .force("x", d3.forceX(width / 2).strength(0.05))
       .force("y", d3.forceY(height / 2).strength(0.05));
 
-    // Use curved paths instead of straight lines
     const linkGroup = svg.append("g");
 
     const link = linkGroup
@@ -133,37 +146,15 @@ export function CurrencyGraph({
       .data(links)
       .join("path")
       .attr("fill", "none")
-      .attr("stroke", (d) => {
-        const key = `${d.from}>${d.to}`;
-        return highlightedEdgeSet.has(key) ? "#f59e0b" : "oklch(0.45 0.02 260)";
-      })
-      .attr("stroke-width", (d) => {
-        const key = `${d.from}>${d.to}`;
-        return highlightedEdgeSet.has(key) ? 2.5 : 1;
-      })
-      .attr("stroke-opacity", (d) => {
-        if (highlightedEdgeSet.size === 0) return 0.4;
-        const key = `${d.from}>${d.to}`;
-        return highlightedEdgeSet.has(key) ? 1 : 0.1;
-      })
-      .attr("marker-end", (d) => {
-        const key = `${d.from}>${d.to}`;
-        return highlightedEdgeSet.has(key) ? "url(#arrow-highlight)" : "url(#arrow-default)";
-      })
-      .attr("filter", (d) => {
-        const key = `${d.from}>${d.to}`;
-        return highlightedEdgeSet.has(key) ? "url(#glow)" : "";
-      })
-      .attr("class", (d) => {
-        const key = `${d.from}>${d.to}`;
-        return highlightedEdgeSet.has(key) ? "cycle-edge-pulse" : "";
-      });
+      .attr("data-key", (d) => `${d.from}>${d.to}`);
 
-    // Edge rate labels — only for highlighted edges when highlighting, or all edges when not
-    const labelLinks = links.filter((d) => {
-      const key = `${d.from}>${d.to}`;
-      return highlightedEdgeSet.size === 0 || highlightedEdgeSet.has(key);
-    });
+    applyEdgeBaseStyle(link, highlightedEdgeSet);
+    linkRef.current = link;
+
+    // Edge rate labels — show all when no cycle highlighted, only cycle edges otherwise
+    const labelLinks = highlightedEdgeSet.size === 0
+      ? links
+      : links.filter((d) => highlightedEdgeSet.has(`${d.from}>${d.to}`));
 
     const edgeLabelGroup = svg.append("g");
     const edgeLabel = edgeLabelGroup
@@ -176,19 +167,27 @@ export function CurrencyGraph({
       .attr("rx", 5)
       .attr("ry", 5)
       .attr("fill", "var(--background, #0f172a)")
-      .attr("fill-opacity", 0.9);
+      .attr("fill-opacity", 0.92)
+      .attr("stroke", (d) => {
+        const key = `${d.from}>${d.to}`;
+        if (highlightedEdgeSet.has(key)) return "#f59e0b";
+        return strokeFromRate(d.rawRate, 0.4);
+      })
+      .attr("stroke-width", 1);
 
     edgeLabel
       .append("text")
-      .attr("font-size", "10px")
+      .attr("font-size", "11px")
       .attr("font-family", "var(--font-mono, monospace)")
+      .attr("font-weight", 600)
       .attr("fill", (d) => {
         const key = `${d.from}>${d.to}`;
-        return highlightedEdgeSet.has(key) ? "#fbbf24" : "oklch(0.55 0.02 260)";
+        if (highlightedEdgeSet.has(key)) return "#fbbf24";
+        return textFromRate(d.rawRate);
       })
       .attr("text-anchor", "middle")
       .attr("dominant-baseline", "middle")
-      .text((d) => d.rawRate.toFixed(4));
+      .text((d) => formatRateLabel(d.rawRate));
 
     // Nodes
     const nodeGroup = svg.append("g");
@@ -199,9 +198,10 @@ export function CurrencyGraph({
       .style("cursor", onNodeClick ? "pointer" : "default")
       .on("click", (_, d) => onNodeClick?.(d.id));
 
-    // Node outer glow for highlighted cycle
+    // Outer glow ring for highlighted cycle / active step
     node
       .append("circle")
+      .attr("class", "node-outer")
       .attr("r", 42)
       .attr("fill", (d) => {
         if (!highlightedCycle) return "transparent";
@@ -214,22 +214,14 @@ export function CurrencyGraph({
         return highlightedCycle.path.includes(d.id) ? "url(#node-glow)" : "";
       });
 
-    // Node circle
+    // Main node circle
     node
       .append("circle")
+      .attr("class", "node-main")
       .attr("r", 32)
       .attr("fill", (d) => CURRENCY_MAP[d.id]?.color ?? "#475569")
-      .attr("fill-opacity", 0.9)
-      .attr("stroke", (d) => {
-        if (!highlightedCycle) return `${CURRENCY_MAP[d.id]?.color ?? "#475569"}40`;
-        return highlightedCycle.path.includes(d.id)
-          ? "#f59e0b"
-          : `${CURRENCY_MAP[d.id]?.color ?? "#475569"}20`;
-      })
-      .attr("stroke-width", (d) => {
-        if (!highlightedCycle) return 2;
-        return highlightedCycle.path.includes(d.id) ? 2.5 : 1;
-      });
+      .attr("fill-opacity", 0.9);
+    applyNodeBaseStroke(node, highlightedCycle);
 
     // Currency code
     node
@@ -243,7 +235,7 @@ export function CurrencyGraph({
       .style("pointer-events", "none")
       .text((d) => d.id);
 
-    // Flag below node
+    // Flag below
     node
       .append("text")
       .attr("text-anchor", "middle")
@@ -252,7 +244,34 @@ export function CurrencyGraph({
       .style("pointer-events", "none")
       .text((d) => CURRENCY_MAP[d.id]?.flag ?? "");
 
-    // Legend in top-left
+    // Distance label above (initially empty — populated by step effect)
+    node
+      .append("rect")
+      .attr("class", "dist-bg")
+      .attr("rx", 4)
+      .attr("ry", 4)
+      .attr("fill", "var(--background, #0f172a)")
+      .attr("fill-opacity", 0)
+      .attr("stroke", "oklch(0.5 0.05 70)")
+      .attr("stroke-opacity", 0)
+      .style("pointer-events", "none");
+
+    node
+      .append("text")
+      .attr("class", "dist-label")
+      .attr("text-anchor", "middle")
+      .attr("y", -42)
+      .attr("font-size", "11px")
+      .attr("font-family", "var(--font-mono, monospace)")
+      .attr("font-weight", "600")
+      .attr("fill", "oklch(0.85 0.08 70)")
+      .attr("fill-opacity", 0)
+      .style("pointer-events", "none")
+      .text("");
+
+    nodeRef.current = node;
+
+    // Legend
     const legend = svg.append("g").attr("transform", "translate(12, 12)");
     legend.append("rect")
       .attr("x", 0).attr("y", 0)
@@ -263,19 +282,16 @@ export function CurrencyGraph({
       .attr("stroke", "oklch(0.3 0.02 260)")
       .attr("stroke-opacity", 0.4);
 
-    // Legend: node
     legend.append("circle").attr("cx", 18).attr("cy", 16).attr("r", 6).attr("fill", "#3b82f6").attr("fill-opacity", 0.9);
     legend.append("text").attr("x", 32).attr("y", 16).attr("font-size", "10px").attr("fill", "oklch(0.6 0.02 260)").attr("dominant-baseline", "central").text("Currency (click to set source)");
 
-    // Legend: edge
     legend.append("line").attr("x1", 12).attr("y1", 36).attr("x2", 24).attr("y2", 36).attr("stroke", "oklch(0.45 0.02 260)").attr("stroke-width", 1.5);
     legend.append("text").attr("x", 32).attr("y", 36).attr("font-size", "10px").attr("fill", "oklch(0.6 0.02 260)").attr("dominant-baseline", "central").text("Exchange rate (directed)");
 
-    // Legend: cycle
     legend.append("line").attr("x1", 12).attr("y1", 56).attr("x2", 24).attr("y2", 56).attr("stroke", "#f59e0b").attr("stroke-width", 2.5);
     legend.append("text").attr("x", 32).attr("y", 56).attr("font-size", "10px").attr("fill", "#fbbf24").attr("dominant-baseline", "central").text("Arbitrage cycle (negative)");
 
-    // Drag behavior
+    // Drag
     node.call(
       d3
         .drag<SVGGElement, D3Node>()
@@ -295,9 +311,8 @@ export function CurrencyGraph({
         })
     );
 
-    // Tick — curved edges via quadratic bezier + boundary clamping
+    // Tick
     simulation.on("tick", () => {
-      // Clamp nodes within padded bounds
       nodes.forEach((d) => {
         d.x = Math.max(pad, Math.min(width - pad, d.x ?? width / 2));
         d.y = Math.max(pad, Math.min(height - pad, d.y ?? height / 2));
@@ -319,7 +334,6 @@ export function CurrencyGraph({
         const sy = (d.source as D3Node).y ?? 0;
         const tx = (d.target as D3Node).x ?? 0;
         const ty = (d.target as D3Node).y ?? 0;
-        // Offset label toward the arc
         const mx = (sx + tx) / 2;
         const my = (sy + ty) / 2;
         const dx = tx - sx;
@@ -330,7 +344,6 @@ export function CurrencyGraph({
         return `translate(${mx + ox},${my + oy})`;
       });
 
-      // Size background rects to text
       edgeLabel.each(function () {
         const g = d3.select(this);
         const text = g.select("text");
@@ -345,11 +358,108 @@ export function CurrencyGraph({
         }
       });
 
+      // Size distance label backgrounds
+      node.each(function () {
+        const g = d3.select(this);
+        const text = g.select<SVGTextElement>("text.dist-label");
+        const rect = g.select("rect.dist-bg");
+        const t = text.node();
+        if (t && text.text()) {
+          const bbox = t.getBBox();
+          rect
+            .attr("x", bbox.x - 4)
+            .attr("y", bbox.y - 2)
+            .attr("width", bbox.width + 8)
+            .attr("height", bbox.height + 4);
+        }
+      });
+
       node.attr("transform", (d) => `translate(${d.x ?? 0},${d.y ?? 0})`);
     });
 
-    return () => { simulation.stop(); };
+    return () => {
+      simulation.stop();
+      linkRef.current = null;
+      nodeRef.current = null;
+    };
   }, [graph, cycles, highlightCycleId, onNodeClick, width, height]);
+
+  // Effect: animate based on currentStep
+  useEffect(() => {
+    const link = linkRef.current;
+    const node = nodeRef.current;
+    if (!link || !node) return;
+
+    const highlightedEdgeSet = highlightedEdgeSetRef.current;
+    const activeKey = currentStep ? `${currentStep.edge.from}>${currentStep.edge.to}` : null;
+    const updatedNode = currentStep?.updated ?? null;
+
+    // Reset all edges to base style first
+    applyEdgeBaseStyle(link, highlightedEdgeSet);
+
+    // Overlay active edge style
+    if (activeKey) {
+      link.filter(function () {
+        return d3.select(this).attr("data-key") === activeKey;
+      }).each(function () {
+        const sel = d3.select(this);
+        const relaxed = currentStep!.relaxed;
+        sel
+          .attr("stroke", relaxed ? "#22c55e" : "#3b82f6")
+          .attr("stroke-opacity", 1)
+          .attr("stroke-width", 3.5)
+          .attr("marker-end", relaxed ? "url(#arrow-relaxed)" : "url(#arrow-active)")
+          .attr("filter", "url(#glow)")
+          .attr("class", "");
+      });
+    }
+
+    // Update distance labels
+    if (currentStep) {
+      node.select<SVGTextElement>("text.dist-label")
+        .attr("fill-opacity", 1)
+        .attr("fill", (d) => {
+          const dn = d as D3Node;
+          if (updatedNode === dn.id) return "#22c55e";
+          return "oklch(0.85 0.08 70)";
+        })
+        .text((d) => {
+          const dn = d as D3Node;
+          const v = currentStep.distances[dn.id];
+          if (v == null || !isFinite(v)) return "\u221e";
+          return v.toFixed(2);
+        });
+      node.select("rect.dist-bg")
+        .attr("fill-opacity", 0.85)
+        .attr("stroke-opacity", (d) => {
+          const dn = d as D3Node;
+          return updatedNode === dn.id ? 0.8 : 0.3;
+        })
+        .attr("stroke", (d) => {
+          const dn = d as D3Node;
+          return updatedNode === dn.id ? "#22c55e" : "oklch(0.5 0.05 70)";
+        });
+
+      // Trigger tick to size the new label backgrounds
+      node.each(function () {
+        const g = d3.select(this);
+        const text = g.select<SVGTextElement>("text.dist-label");
+        const rect = g.select("rect.dist-bg");
+        const t = text.node();
+        if (t && text.text()) {
+          const bbox = t.getBBox();
+          rect
+            .attr("x", bbox.x - 4)
+            .attr("y", bbox.y - 2)
+            .attr("width", bbox.width + 8)
+            .attr("height", bbox.height + 4);
+        }
+      });
+    } else {
+      node.select("text.dist-label").attr("fill-opacity", 0).text("");
+      node.select("rect.dist-bg").attr("fill-opacity", 0).attr("stroke-opacity", 0);
+    }
+  }, [currentStep]);
 
   return (
     <svg
@@ -360,4 +470,95 @@ export function CurrencyGraph({
       viewBox={`0 0 ${width} ${height}`}
     />
   );
+}
+
+function applyEdgeBaseStyle(
+  link: d3.Selection<SVGPathElement, D3Link, SVGGElement, unknown>,
+  highlightedEdgeSet: Set<string>
+) {
+  link
+    .attr("stroke", (d) => {
+      const key = `${d.from}>${d.to}`;
+      if (highlightedEdgeSet.has(key)) return "#f59e0b";
+      return strokeFromRate(d.rawRate, 1);
+    })
+    .attr("stroke-width", (d) => {
+      const key = `${d.from}>${d.to}`;
+      return highlightedEdgeSet.has(key) ? 3 : 1.5;
+    })
+    .attr("stroke-opacity", (d) => {
+      if (highlightedEdgeSet.size === 0) return 0.55;
+      const key = `${d.from}>${d.to}`;
+      return highlightedEdgeSet.has(key) ? 1 : 0.12;
+    })
+    .attr("marker-end", (d) => {
+      const key = `${d.from}>${d.to}`;
+      if (highlightedEdgeSet.has(key)) return "url(#arrow-highlight)";
+      return markerFromRate(d.rawRate);
+    })
+    .attr("filter", (d) => {
+      const key = `${d.from}>${d.to}`;
+      return highlightedEdgeSet.has(key) ? "url(#glow)" : "";
+    })
+    .attr("class", (d) => {
+      const key = `${d.from}>${d.to}`;
+      return highlightedEdgeSet.has(key) ? "cycle-edge-pulse" : "";
+    });
+}
+
+// Rates near parity (0.5 to 2) get green/red gain/loss styling.
+// Cross-currency rates (like USD↔INR) get neutral styling because per-edge
+// "gain/loss" is meaningless when one currency is denominated very differently.
+const NEAR_PARITY_MIN = 0.5;
+const NEAR_PARITY_MAX = 2;
+
+function isNearParity(rate: number) {
+  return rate >= NEAR_PARITY_MIN && rate <= NEAR_PARITY_MAX;
+}
+
+function strokeFromRate(rate: number, alpha: number) {
+  if (!isNearParity(rate)) {
+    return alpha === 1 ? "oklch(0.5 0.02 260)" : `oklch(0.5 0.02 260 / ${alpha})`;
+  }
+  if (rate >= 1) return alpha === 1 ? "#10b981" : `#10b981${Math.round(alpha * 255).toString(16).padStart(2, "0")}`;
+  return alpha === 1 ? "#ef4444" : `#ef4444${Math.round(alpha * 255).toString(16).padStart(2, "0")}`;
+}
+
+function markerFromRate(rate: number) {
+  if (!isNearParity(rate)) return "url(#arrow-default)";
+  return rate >= 1 ? "url(#arrow-gain)" : "url(#arrow-loss)";
+}
+
+function textFromRate(rate: number) {
+  if (!isNearParity(rate)) return "oklch(0.7 0.02 260)";
+  return rate >= 1 ? "#34d399" : "#f87171";
+}
+
+function formatRateLabel(rate: number) {
+  if (!isNearParity(rate)) {
+    // Cross-currency: just show the rate, no meaningless percentage
+    return rate < 0.01 ? rate.toFixed(5) : rate.toFixed(rate < 1 ? 4 : 2);
+  }
+  const sign = rate >= 1 ? "+" : "";
+  const pct = ((rate - 1) * 100).toFixed(2);
+  return `${rate.toFixed(4)}  ${sign}${pct}%`;
+}
+
+function applyNodeBaseStroke(
+  node: d3.Selection<SVGGElement, D3Node, SVGGElement, unknown>,
+  highlightedCycle: CycleResult | null | undefined
+) {
+  node.select("circle.node-main")
+    .attr("stroke", (d) => {
+      const dn = d as D3Node;
+      if (!highlightedCycle) return `${CURRENCY_MAP[dn.id]?.color ?? "#475569"}40`;
+      return highlightedCycle.path.includes(dn.id)
+        ? "#f59e0b"
+        : `${CURRENCY_MAP[dn.id]?.color ?? "#475569"}20`;
+    })
+    .attr("stroke-width", (d) => {
+      const dn = d as D3Node;
+      if (!highlightedCycle) return 2;
+      return highlightedCycle.path.includes(dn.id) ? 2.5 : 1;
+    });
 }

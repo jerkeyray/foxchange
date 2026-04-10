@@ -56,7 +56,7 @@ export function ConvergencePlot({ graph, steps, currentIndex }: Props) {
         </div>
       </div>
       <div className="p-4">
-        <ResponsiveContainer width="100%" height={220}>
+        <ResponsiveContainer width="100%" height={300}>
           <LineChart data={data} margin={{ top: 4, right: 8, left: -10, bottom: 4 }}>
             <CartesianGrid
               strokeDasharray="3 3"

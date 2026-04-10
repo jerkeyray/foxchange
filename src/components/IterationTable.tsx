@@ -64,17 +64,17 @@ export function IterationTable({ graph, steps, currentIndex }: Props) {
           </p>
         </div>
       </div>
-      <div ref={tableRef} className="overflow-auto max-h-72">
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="border-b border-border">
-              <th className="px-4 py-2.5 text-left text-[10px] text-muted-foreground font-medium uppercase tracking-wider w-14 sticky left-0 bg-card z-10">
+      <div ref={tableRef} className="overflow-auto max-h-[640px]">
+        <table className="w-full text-sm">
+          <thead className="sticky top-0 bg-card z-20">
+            <tr className="border-b-2 border-border">
+              <th className="px-5 py-3.5 text-left text-[11px] text-muted-foreground font-semibold uppercase tracking-wider w-20 sticky left-0 bg-card z-10">
                 Pass
               </th>
               {graph.nodes.map((node) => (
                 <th
                   key={node}
-                  className="px-3 py-2.5 text-right text-[10px] font-medium uppercase tracking-wider"
+                  className="px-4 py-3.5 text-right text-[11px] font-semibold uppercase tracking-wider"
                   style={{ color: CURRENCY_MAP[node]?.color ?? "#94a3b8" }}
                 >
                   {node}
@@ -84,11 +84,11 @@ export function IterationTable({ graph, steps, currentIndex }: Props) {
           </thead>
           <tbody>
             <tr className="border-b border-border/40">
-              <td className="px-4 py-2 text-muted-foreground/50 font-mono sticky left-0 bg-card z-10">
+              <td className="px-5 py-3 text-muted-foreground/50 font-mono text-xs uppercase tracking-wider sticky left-0 bg-card z-10">
                 init
               </td>
               {graph.nodes.map((node) => (
-                <td key={node} className="px-3 py-2 text-right font-mono text-muted-foreground/40">
+                <td key={node} className="px-4 py-3 text-right font-mono text-muted-foreground/40 tabular-nums">
                   {"\u221e"}
                 </td>
               ))}
@@ -106,13 +106,13 @@ export function IterationTable({ graph, steps, currentIndex }: Props) {
                   data-iter={iteration}
                   className={cn(
                     "border-b border-border/30 transition-all duration-200",
-                    isActive && "bg-amber-500/8",
+                    isActive && "bg-amber-500/10",
                     !isActive && rowIdx % 2 === 1 && "bg-muted/20"
                   )}
                 >
                   <td className={cn(
-                    "px-4 py-2 font-mono sticky left-0 z-10 transition-colors",
-                    isActive ? "text-amber-400 font-semibold bg-amber-500/8" : "text-muted-foreground bg-card"
+                    "px-5 py-3 font-mono sticky left-0 z-10 transition-colors text-sm",
+                    isActive ? "text-amber-400 font-bold bg-amber-500/10" : "text-muted-foreground bg-card"
                   )}>
                     {iteration + 1}
                   </td>
@@ -126,13 +126,13 @@ export function IterationTable({ graph, steps, currentIndex }: Props) {
                       <td
                         key={node}
                         className={cn(
-                          "px-3 py-2 text-right font-mono transition-all duration-200 tabular-nums",
-                          isUpdated && "text-green-400 font-bold",
+                          "px-4 py-3 text-right font-mono transition-all duration-200 tabular-nums",
+                          isUpdated && "text-green-400 font-bold text-base",
                           changed && !isUpdated && "text-foreground",
                           !changed && "text-muted-foreground/60"
                         )}
                       >
-                        {isUpdated && <span className="inline-block w-1 h-1 rounded-full bg-green-400 mr-1 align-middle" />}
+                        {isUpdated && <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-400 mr-1.5 align-middle" />}
                         {fmt(val)}
                       </td>
                     );

@@ -121,6 +121,7 @@ export function CycleDetailView({ cycleId }: Props) {
               highlightCycleId={data.cycle.id}
               width={580}
               height={440}
+              currentStep={data.steps[player.currentIndex] ?? null}
             />
           </div>
           <GraphControls

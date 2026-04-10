@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import type { Graph } from "@/types/graph";
 import { runBellmanFord, findAllCycles } from "@/lib/bellman-ford";
 import { SandboxEditor } from "@/components/SandboxEditor";
@@ -13,23 +13,46 @@ import { useAnimationPlayer } from "@/hooks/useAnimationPlayer";
 import { PRESETS, type PresetKey } from "@/lib/presets";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Play, FlaskConical, Sparkles, Download, PenTool, Target, CircleDot } from "lucide-react";
+import { Play, FlaskConical, Download, CircleDot, Pencil } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+const DEFAULT_PRESET: PresetKey = "triangle";
+const DEFAULT_GRAPH = PRESETS[DEFAULT_PRESET].graph;
+const DEFAULT_SOURCE = DEFAULT_GRAPH.nodes[0] ?? "USD";
+
 export default function SandboxPage() {
-  const [graph, setGraph] = useState<Graph>(PRESETS.textbook.graph);
-  const [activePreset, setActivePreset] = useState<PresetKey>("textbook");
-  const [source, setSource] = useState<string>(PRESETS.textbook.graph.nodes[0] ?? "A");
+  const [graph, setGraph] = useState<Graph>(DEFAULT_GRAPH);
+  const [activePreset, setActivePreset] = useState<PresetKey>(DEFAULT_PRESET);
+  const [source, setSource] = useState<string>(DEFAULT_SOURCE);
   const [steps, setSteps] = useState(
-    runBellmanFord(PRESETS.textbook.graph, "A", { instrument: true }).steps
+    runBellmanFord(DEFAULT_GRAPH, DEFAULT_SOURCE, { instrument: true }).steps
   );
-  const [cycles, setCycles] = useState(findAllCycles(PRESETS.textbook.graph));
+  const [cycles, setCycles] = useState(findAllCycles(DEFAULT_GRAPH));
   const [selectedCycleId, setSelectedCycleId] = useState<string | null>(
-    findAllCycles(PRESETS.textbook.graph)[0]?.id ?? null
+    findAllCycles(DEFAULT_GRAPH)[0]?.id ?? null
   );
   const [hasRun, setHasRun] = useState(true);
 
   const player = useAnimationPlayer(steps);
+
+  const graphContainerRef = useRef<HTMLDivElement>(null);
+  const [graphSize, setGraphSize] = useState({ w: 700, h: 460 });
+
+  useEffect(() => {
+    const el = graphContainerRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const w = Math.round(entry.contentRect.width);
+        setGraphSize({
+          w,
+          h: Math.max(440, Math.round(w * 0.62)),
+        });
+      }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   function loadPreset(key: PresetKey) {
     const p = PRESETS[key];
@@ -79,114 +102,126 @@ export default function SandboxPage() {
   }, []);
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6 animate-fade-in">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-5 animate-fade-in">
       {/* Header */}
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div className="flex items-center gap-3">
-          <FlaskConical className="w-6 h-6 text-foreground" />
+      <div className="space-y-4">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">Graph Sandbox</h1>
-            <p className="text-sm text-muted-foreground max-w-lg leading-relaxed">
-              Build a custom currency graph, set exchange rates, and run Bellman-Ford to find arbitrage cycles. Start from a preset or create your own.
+            <div className="flex items-center gap-2">
+              <FlaskConical className="w-5 h-5 text-foreground" />
+              <h1 className="text-xl font-bold tracking-tight">Sandbox</h1>
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Build a custom currency graph, then run Bellman-Ford to detect arbitrage cycles.
             </p>
           </div>
         </div>
+
+        {/* Presets row */}
         <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs text-muted-foreground mr-1">Start with:</span>
           {(Object.keys(PRESETS) as PresetKey[]).map((key) => (
             <button
               key={key}
               onClick={() => loadPreset(key)}
               className={cn(
-                "px-3.5 py-2 rounded-xl text-xs font-medium transition-all duration-200 border",
+                "px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border",
                 activePreset === key
                   ? "bg-muted border-border text-foreground"
-                  : "border-border text-muted-foreground hover:text-foreground hover:bg-muted/50 hover:border-border"
+                  : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/50"
               )}
             >
-              <Sparkles className="w-3 h-3 inline mr-1.5 -mt-0.5" />
               {PRESETS[key].label}
             </button>
           ))}
-          <Button variant="outline" size="sm" onClick={loadLiveRates} className="gap-1.5 rounded-xl">
-            <Download className="w-3.5 h-3.5" />
-            Live FX Rates
+          <div className="w-px h-5 bg-border mx-1" />
+          <Button variant="outline" size="sm" onClick={loadLiveRates} className="gap-1.5 h-7 text-xs">
+            <Download className="w-3 h-3" />
+            Live Rates
           </Button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[400px_1fr] gap-6">
-        {/* Left: Editor + Controls */}
-        <div className="space-y-4">
-          <div className="rounded-2xl border border-border bg-card p-5">
-            <div className="flex items-center gap-2 mb-2">
-              <PenTool className="w-3.5 h-3.5 text-muted-foreground" />
-              <p className="text-[11px] text-muted-foreground uppercase tracking-widest font-medium">
-                Graph Editor
-              </p>
+      {/* Main layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-[340px_minmax(0,1fr)] gap-5">
+        {/* Left column: Editor + Run + Results */}
+        <div className="space-y-4 min-w-0">
+          {/* Step 1: Edit */}
+          <div className="rounded-xl border border-border bg-card overflow-hidden">
+            <div className="px-4 py-2.5 border-b border-border flex items-center gap-2">
+              <span className="w-5 h-5 rounded-md bg-muted text-[10px] font-mono flex items-center justify-center text-muted-foreground">1</span>
+              <Pencil className="w-3.5 h-3.5 text-muted-foreground" />
+              <h2 className="text-xs font-semibold">Edit graph</h2>
             </div>
-            <p className="text-[11px] text-muted-foreground leading-relaxed mb-4">
-              Add currencies as nodes and exchange rates as directed edges.
-              To plant an arbitrage cycle, make the product of rates along a loop greater than 1.0.
-            </p>
-            <SandboxEditor
-              key={activePreset}
-              onGraphChange={handleGraphChange}
-              initialRates={
-                (activePreset && PRESETS[activePreset as PresetKey]?.rates) || {}
-              }
-            />
+            <div className="p-4">
+              <SandboxEditor
+                key={activePreset}
+                onGraphChange={handleGraphChange}
+                initialRates={
+                  (activePreset && PRESETS[activePreset as PresetKey]?.rates) || {}
+                }
+              />
+            </div>
           </div>
 
-          {/* BF source + run */}
-          <div className="rounded-2xl border border-border bg-card p-5 space-y-4">
-            <div className="flex items-center gap-2">
-              <Target className="w-3.5 h-3.5 text-muted-foreground" />
-              <p className="text-[11px] text-muted-foreground leading-relaxed">
-                Choose a source node and run Bellman-Ford. Runs from every node internally to find all cycles.
-              </p>
+          {/* Step 2: Run */}
+          <div className="rounded-xl border border-border bg-card overflow-hidden">
+            <div className="px-4 py-2.5 border-b border-border flex items-center gap-2">
+              <span className="w-5 h-5 rounded-md bg-muted text-[10px] font-mono flex items-center justify-center text-muted-foreground">2</span>
+              <Play className="w-3.5 h-3.5 text-muted-foreground" />
+              <h2 className="text-xs font-semibold">Run algorithm</h2>
             </div>
-            <div className="flex items-center gap-2">
-              <label className="text-sm font-medium">Source node</label>
-              <select
-                value={source}
-                onChange={(e) => setSource(e.target.value)}
-                className="ml-auto bg-muted border border-border rounded-lg px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-ring/50"
+            <div className="p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-muted-foreground">Source</label>
+                <select
+                  value={source}
+                  onChange={(e) => setSource(e.target.value)}
+                  className="ml-auto bg-muted border border-border rounded-lg px-2.5 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-ring/50"
+                >
+                  {graph.nodes.map((n) => (
+                    <option key={n} value={n}>{n}</option>
+                  ))}
+                </select>
+              </div>
+              <Button
+                onClick={runBF}
+                className="w-full gap-2 h-9 text-sm"
+                disabled={graph.nodes.length === 0}
               >
-                {graph.nodes.map((n) => (
-                  <option key={n} value={n}>{n}</option>
-                ))}
-              </select>
+                <Play className="w-3.5 h-3.5" /> Run Bellman-Ford
+              </Button>
+              {!hasRun && graph.nodes.length > 0 && (
+                <p className="text-[11px] text-muted-foreground text-center">
+                  Graph changed — run again to detect cycles.
+                </p>
+              )}
             </div>
-            <Button
-              onClick={runBF}
-              className="w-full gap-2 rounded-xl h-10"
-              disabled={graph.nodes.length === 0}
-            >
-              <Play className="w-4 h-4" /> Run Bellman-Ford
-            </Button>
           </div>
 
-          {/* Cycle results */}
+          {/* Step 3: Results */}
           {hasRun && (
-            <div className="rounded-2xl border border-border bg-card p-5 space-y-3 animate-fade-in">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium flex items-center gap-1.5">
-                  <CircleDot className="w-3.5 h-3.5" />
-                  Detected Cycles
-                </span>
+            <div className="rounded-xl border border-border bg-card overflow-hidden animate-fade-in">
+              <div className="px-4 py-2.5 border-b border-border flex items-center gap-2">
+                <span className="w-5 h-5 rounded-md bg-muted text-[10px] font-mono flex items-center justify-center text-muted-foreground">3</span>
+                <CircleDot className="w-3.5 h-3.5 text-muted-foreground" />
+                <h2 className="text-xs font-semibold">Cycles found</h2>
                 <Badge
-                  variant={cycles.length > 0 ? "default" : "outline"}
-                  className={cycles.length > 0 ? "bg-green-500/15 text-green-400 border-green-500/25" : ""}
+                  variant="outline"
+                  className={cn(
+                    "ml-auto h-5 text-[10px] px-1.5",
+                    cycles.length > 0 && "bg-green-500/15 text-green-400 border-green-500/25"
+                  )}
                 >
                   {cycles.length}
                 </Badge>
               </div>
-              {cycles.length === 0 && (
-                <p className="text-sm text-muted-foreground py-3 text-center">
-                  No arbitrage found in this graph.
-                </p>
-              )}
-              <div className="space-y-2">
+              <div className="p-4 space-y-2">
+                {cycles.length === 0 && (
+                  <p className="text-xs text-muted-foreground py-2 text-center">
+                    No arbitrage in this graph.
+                  </p>
+                )}
                 {cycles.map((c) => (
                   <CycleCard
                     key={c.id}
@@ -196,33 +231,35 @@ export default function SandboxPage() {
                     onClick={() => setSelectedCycleId(c.id)}
                   />
                 ))}
+                {cycles.length > 0 && (
+                  <p className="text-[11px] text-muted-foreground/80 pt-1 leading-relaxed">
+                    Try editing a rate above and re-running — small changes can erase the cycle.
+                  </p>
+                )}
               </div>
             </div>
           )}
         </div>
 
-        {/* Right: Graph + Animation */}
-        <div className="space-y-4">
-          <div className="rounded-2xl border border-border overflow-hidden graph-container dot-grid min-h-[460px] relative">
+        {/* Right column: Graph + Animation */}
+        <div className="space-y-4 min-w-0">
+          <div
+            ref={graphContainerRef}
+            className="rounded-xl border border-border overflow-hidden graph-container dot-grid min-h-[440px]"
+          >
             <CurrencyGraph
               graph={graph}
               cycles={cycles}
               highlightCycleId={selectedCycleId}
               onNodeClick={setSource}
-              width={700}
-              height={460}
+              width={graphSize.w}
+              height={graphSize.h}
+              currentStep={hasRun && steps.length > 0 ? steps[player.currentIndex] ?? null : null}
             />
           </div>
 
           {hasRun && steps.length > 0 && (
-            <div className="animate-fade-in space-y-4">
-              <div className="rounded-xl bg-muted/30 border border-border/60 px-4 py-3 text-[11px] text-muted-foreground leading-relaxed">
-                <span className="font-semibold text-foreground">Step-through playback:</span>{" "}
-                Use the controls below to watch Bellman-Ford process each edge one at a time.
-                The iteration table shows distance updates, and the convergence plot tracks how distances evolve.
-                Press <kbd className="font-mono bg-muted border border-border rounded px-1 py-0.5 text-[10px]">Space</kbd> to play/pause,
-                arrow keys to step.
-              </div>
+            <div className="animate-fade-in min-w-0">
               <GraphControls
                 currentIndex={player.currentIndex}
                 totalSteps={player.totalSteps}
@@ -237,22 +274,26 @@ export default function SandboxPage() {
                 onReset={player.reset}
                 onSetSpeed={player.setSpeed}
               />
-              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-                <IterationTable
-                  graph={graph}
-                  steps={steps}
-                  currentIndex={player.currentIndex}
-                />
-                <ConvergencePlot
-                  graph={graph}
-                  steps={steps}
-                  currentIndex={player.currentIndex}
-                />
-              </div>
             </div>
           )}
         </div>
       </div>
+
+      {/* Full-width: distance table stacked over convergence plot */}
+      {hasRun && steps.length > 0 && (
+        <div className="space-y-5 animate-fade-in">
+          <IterationTable
+            graph={graph}
+            steps={steps}
+            currentIndex={player.currentIndex}
+          />
+          <ConvergencePlot
+            graph={graph}
+            steps={steps}
+            currentIndex={player.currentIndex}
+          />
+        </div>
+      )}
     </div>
   );
 }
